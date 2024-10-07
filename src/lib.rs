@@ -2,11 +2,10 @@ use solana_program::{program_error::ProgramError, pubkey::Pubkey};
 use solana_program::account_info::AccountInfo;
 use std::collections::HashMap;
 
-
 #[derive(Debug, Clone)]
 struct VoterInfo {
-    pub votes_left: u32,         // Количество оставшихся голосов
-    pub delegate: Option<Pubkey>, // Делегат, если есть
+    pub votes_left: u32,         // Number of remaining votes
+    pub delegate: Option<Pubkey>, // Delegate if any
 }
 
 #[derive(Debug)]
@@ -16,53 +15,53 @@ pub struct Vote {
     options: Vec<String>,
     votes: HashMap<String, u32>,
     creator: Pubkey,
-    allowed_voters: HashMap<Pubkey, VoterInfo>, // Хранит информацию о разрешённых голосующих
+    allowed_voters: HashMap<Pubkey, VoterInfo>, // Stores information about allowed voters
     is_close_vote_results: bool,
     is_vote_open: bool
 }
 
 impl Vote {
-    // Метод для получения вариантов голосования
+    // Method to get voting options
     fn get_options(&self) -> &Vec<String> {
         &self.options
     }
 
     fn add_allowed_voter(&mut self, voter: Pubkey, caller: &Pubkey) -> Result<(), ProgramError>{
         if *caller != self.creator {
-            return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если это не создатель
+            return Err(ProgramError::InvalidArgument); // Return error if not the creator
         }
 
-        // Проверяем, не закрыто ли голосование
-        if !self.is_vote_open  {
-            return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если голосование закрыто
+        // Check if the voting is closed
+        if !self.is_vote_open {
+            return Err(ProgramError::InvalidArgument); // Return error if voting is closed
         }
 
         let new_voter = VoterInfo {
-            votes_left: 1,            // Инициализируем с 1 голосом
-            delegate: None,           // Пустой делегат
+            votes_left: 1,            // Initialize with 1 vote
+            delegate: None,           // Empty delegate
         };
 
-        self.allowed_voters.insert(voter, new_voter); // Инициализируем нового голосующего
+        self.allowed_voters.insert(voter, new_voter); // Initialize new voter
 
         Ok(())
     }
 
     fn remove_allowed_voter(&mut self, voter: &Pubkey, caller: &Pubkey) -> Result<(), ProgramError> {
-        // Проверяем, что вызывающий адрес - это создатель голосования
+        // Check if the calling address is the creator of the vote
         if *caller != self.creator {
-            return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если это не создатель
+            return Err(ProgramError::InvalidArgument); // Return error if not the creator
         }
 
-        // Проверяем, не закрыто ли голосование
-        if !self.is_vote_open  {
-            return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если голосование закрыто
+        // Check if the voting is closed
+        if !self.is_vote_open {
+            return Err(ProgramError::InvalidArgument); // Return error if voting is closed
         }
 
-        // Удаляем голосующего из списка, если он там есть
+        // Remove the voter from the list if they exist
         if self.allowed_voters.remove(voter).is_some() {
             Ok(())
         } else {
-            Err(ProgramError::InvalidArgument) // Возвращаем ошибку, если голосующий не найден
+            Err(ProgramError::InvalidArgument) // Return error if the voter is not found
         }
     }
 
@@ -71,79 +70,79 @@ impl Vote {
     }
 
     fn vote(&mut self, voter: &Pubkey, option_index: usize) -> Result<(), ProgramError> {
-        // Проверяем, что голосующий в списке разрешённых
+        // Check if the voter is in the allowed list
         if !self.is_voter_allowed(voter) {
-            return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если голосующий не разрешён
+            return Err(ProgramError::InvalidArgument); // Return error if voter is not allowed
         }
 
-        // Проверяем, не закрыто ли голосование
-        if !self.is_vote_open  {
-            return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если голосование закрыто
+        // Check if the voting is closed
+        if !self.is_vote_open {
+            return Err(ProgramError::InvalidArgument); // Return error if voting is closed
         }
 
         if let Some(voter_info) = self.allowed_voters.get_mut(voter) {
-            // Проверяем, что голосующий ещё может голосовать
+            // Check if the voter still has votes left
             if voter_info.votes_left <= 0 {
-                return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если голосующий исчерпал свои голоса
+                return Err(ProgramError::InvalidArgument); // Return error if the voter has exhausted their votes
             }
 
-            // Проверяем, что выбранный индекс варианта корректен
+            // Check if the selected option index is correct
             if option_index >= self.options.len() {
-                return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если индекс вне диапазона
+                return Err(ProgramError::InvalidArgument); // Return error if index is out of range
             }
 
-            // Увеличиваем количество голосов для выбранного варианта
+            // Increase the number of votes for the selected option
             let option_key = self.options[option_index].clone();
             let count = self.votes.entry(option_key).or_insert(0);
-            *count += 1; // Увеличиваем счетчик голосов
+            *count += 1; // Increase the vote count
 
-            // Уменьшаем количество оставшихся голосов
+            // Decrease the remaining votes
             voter_info.votes_left -= 1;
 
             Ok(())
         } else {
-            Err(ProgramError::InvalidArgument) // Возвращаем ошибку, если голосующий не найден
+            Err(ProgramError::InvalidArgument) // Return error if the voter is not found
         }
     }
 
     fn delegate_vote(&mut self, delegate: &Pubkey, delegator: &Pubkey) -> Result<(), ProgramError> {
-        // Проверяем, что делегатор разрешён
+        // Check if the delegator is allowed
         if let Some(voter_info) = self.allowed_voters.get(delegator).cloned() {
-            // Проверяем, не закрыто ли голосование
-            if !self.is_vote_open  {
-                return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если голосование закрыто
+            // Check if the voting is closed
+            if !self.is_vote_open {
+                return Err(ProgramError::InvalidArgument); // Return error if voting is closed
             }
 
             if voter_info.votes_left > 0 {
-                // Уменьшаем количество голосов у делегатора
+                // Decrease the number of votes for the delegator
                 let mut updated_voter_info = voter_info;
                 updated_voter_info.votes_left -= 1;
 
-                // Получаем или создаем запись для делегата
+                // Get or create an entry for the delegate
                 let entry = self.allowed_voters.entry(*delegate).or_insert(VoterInfo {
                     votes_left: 0,
                     delegate: None,
                 });
 
-                // Увеличиваем количество голосов у делегата
+                // Increase the number of votes for the delegate
                 entry.votes_left += 1;
 
-                // Устанавливаем делегата
+                // Set the delegate
                 updated_voter_info.delegate = Some(*delegate);
-                self.allowed_voters.insert(*delegator, updated_voter_info); // Обновляем информацию о голосующем
+                self.allowed_voters.insert(*delegator, updated_voter_info); // Update the voter's information
 
                 Ok(())
             } else {
-                Err(ProgramError::InvalidArgument) // Нет доступных голосов
+                Err(ProgramError::InvalidArgument) // No available votes
             }
         } else {
-            Err(ProgramError::InvalidArgument) // Делегатор не разрешён
+            Err(ProgramError::InvalidArgument) // Delegator is not allowed
         }
     }
 }
 
 pub struct Voting {
-    pub votes: HashMap<u32, Vote>, // Список голосований
+    pub votes: HashMap<u32, Vote>, // List of votes
     current_id: u32,
 }
 
@@ -151,7 +150,7 @@ impl Voting {
 
     pub fn create_vote(&mut self, title: String, options: Vec<String>, is_close_vote_results: bool, accounts: &[AccountInfo]) -> Result<u32, ProgramError> {
         if accounts.is_empty() {
-            return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если нет аккаунтов
+            return Err(ProgramError::InvalidArgument); // Return error if no accounts are provided
         }
 
         let creator = accounts[0].key;
@@ -161,34 +160,34 @@ impl Voting {
             id: self.current_id,
             title,
             options,
-            votes: HashMap::new(), // Инициализируем пустую карту для голосов
+            votes: HashMap::new(), // Initialize an empty map for votes
             creator: *creator,
-            allowed_voters: HashMap::new(), // Инициализируем пустую карту для разрешённых голосующих
+            allowed_voters: HashMap::new(), // Initialize an empty map for allowed voters
             is_close_vote_results,
             is_vote_open
         };
-        self.votes.insert(self.current_id, vote); // Добавляем голосование в список
-        self.current_id += 1; // Увеличиваем идентификатор для следующего голосования
+        self.votes.insert(self.current_id, vote); // Add the vote to the list
+        self.current_id += 1; // Increment the identifier for the next vote
 
         Ok(self.current_id - 1)
     }
 
     pub fn vote(&mut self, vote_id: u32, accounts: &[AccountInfo], option_index: usize) -> Result<(), ProgramError> {
-        // Проверяем, что указанный идентификатор голосования корректен
+        // Check if the provided vote ID is valid
         if !self.votes.contains_key(&vote_id) {
-            return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если идентификатор не существует
+            return Err(ProgramError::InvalidArgument); // Return error if the ID does not exist
         }
 
-        // Получаем голосование по идентификатору
-        let vote = self.votes.get_mut(&vote_id).unwrap(); // безопасно извлекаем голосование, так как мы уже проверили наличие
+        // Get the vote by ID
+        let vote = self.votes.get_mut(&vote_id).unwrap(); // Safely extract the vote as we already checked for existence
 
         if accounts.is_empty() {
-            return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если нет аккаунтов
+            return Err(ProgramError::InvalidArgument); // Return error if no accounts are provided
         }
 
         let voter = accounts[0].key;
 
-        // Вызываем метод голосования
+        // Call the voting method
         vote.vote(voter, option_index)
     }
 
@@ -201,40 +200,40 @@ impl Voting {
 
         if let Some(vote) = self.votes.get_mut(&vote_id) {
             if vote.creator != *caller {
-                return Err(ProgramError::InvalidArgument); // Только создатель может закрыть голосование
+                return Err(ProgramError::InvalidArgument); // Only the creator can close the vote
             }
-            vote.is_vote_open = false; // Закрываем голосование
+            vote.is_vote_open = false; // Close the vote
             Ok(())
         } else {
-            Err(ProgramError::InvalidArgument) // Голосование не найдено
+            Err(ProgramError::InvalidArgument) // Vote not found
         }
     }
 
     pub fn get_results(&self, vote_id: u32, accounts: &[AccountInfo]) -> Result<HashMap<String, u32>, ProgramError> {
         if accounts.is_empty() {
-            return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если нет аккаунтов
+            return Err(ProgramError::InvalidArgument); // Return error if no accounts are provided
         }
 
         let caller = accounts[0].key;
 
-        // Извлекаем голосование по идентификатору
+        // Extract the vote by ID
         let vote = self.votes.get(&vote_id).ok_or(ProgramError::InvalidArgument)?;
 
-        // Проверяем, закрыты ли результаты голосования
+        // Check if the results of the vote are closed
         if vote.is_close_vote_results {
-            // Проверяем, что голосующий разрешён
+            // Check if the voter is allowed
             if !vote.is_voter_allowed(caller) {
-                return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если голосующий не разрешён
+                return Err(ProgramError::InvalidArgument); // Return error if the voter is not allowed
             }
         }
 
-        // Возвращаем результаты голосования
+        // Return the voting results
         Ok(vote.votes.clone())
     }
 
     pub fn add_allowed_voter(&mut self, vote_id: u32, voter: Pubkey, accounts: &[AccountInfo]) -> Result<(), ProgramError> {
         if accounts.is_empty() {
-            return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если нет аккаунтов
+            return Err(ProgramError::InvalidArgument); // Return error if no accounts are provided
         }
 
         let caller = accounts[0].key;
@@ -242,13 +241,13 @@ impl Voting {
         if let Some(vote) = self.votes.get_mut(&vote_id) {
             vote.add_allowed_voter(voter, caller)
         } else {
-            Err(ProgramError::InvalidArgument) // Возвращаем ошибку, если голосования не существует
+            Err(ProgramError::InvalidArgument) // Return error if the vote does not exist
         }
     }
 
     pub fn remove_allowed_voter(&mut self, vote_id: u32, voter: &Pubkey, accounts: &[AccountInfo]) -> Result<(), ProgramError> {
         if accounts.is_empty() {
-            return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если нет аккаунтов
+            return Err(ProgramError::InvalidArgument); // Return error if no accounts are provided
         }
 
         let caller = accounts[0].key;
@@ -256,7 +255,7 @@ impl Voting {
         if let Some(vote) = self.votes.get_mut(&vote_id) {
             vote.remove_allowed_voter(voter, caller)
         } else {
-            Err(ProgramError::InvalidArgument) // Возвращаем ошибку, если голосования не существует
+            Err(ProgramError::InvalidArgument) // Return error if the vote does not exist
         }
     }
 
@@ -264,21 +263,21 @@ impl Voting {
         if let Some(vote) = self.votes.get(&vote_id) {
             Ok(vote.is_voter_allowed(voter))
         } else {
-            Err(ProgramError::InvalidArgument) // Возвращаем ошибку, если голосования не существует
+            Err(ProgramError::InvalidArgument) // Return error if the vote does not exist
         }
     }
 
     pub fn delegate_vote(&mut self, vote_id: u32, delegate: &Pubkey, accounts: &[AccountInfo]) -> Result<(), ProgramError> {
-        // Проверяем, что голосование с указанным идентификатором существует
+        // Check if the vote with the given ID exists
         let vote = self.votes.get_mut(&vote_id).ok_or(ProgramError::InvalidArgument)?;
 
         if accounts.is_empty() {
-            return Err(ProgramError::InvalidArgument); // Возвращаем ошибку, если нет аккаунтов
+            return Err(ProgramError::InvalidArgument); // Return error if no accounts are provided
         }
 
         let delegator = accounts[0].key;
 
-        // Вызов метода delegate_vote у голосования
+        // Call the delegate_vote method of the vote
         vote.delegate_vote(delegate, delegator)
     }
 
@@ -286,11 +285,10 @@ impl Voting {
         if let Some(vote) = self.votes.get(&vote_id) {
             Ok(vote.get_options())
         } else {
-            Err(ProgramError::InvalidArgument) // Возвращаем ошибку, если голосования не существует
+            Err(ProgramError::InvalidArgument) // Return error if the vote does not exist
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -323,7 +321,7 @@ mod tests {
             let is_writable = false;
             let executable = false;
 
-            // Создаем AccountInfo для создателя голосования
+            // Create AccountInfo for the vote creator
             let account_info = AccountInfo::new(
                 &creator,
                 is_signer,
@@ -335,7 +333,7 @@ mod tests {
                 0,
             );
 
-            match self.voting.create_vote(title, options,is_close_vote_results, &[account_info]) {
+            match self.voting.create_vote(title, options, is_close_vote_results, &[account_info]) {
                 Ok(vote_id) => vote_id,
                 Err(err) => {
                     panic!("Failed to create vote: {:?}", err);
@@ -369,7 +367,7 @@ mod tests {
         let is_writable = false;
         let executable = false;
 
-        // Создаем AccountInfo для создателя голосования
+        // Create AccountInfo for the vote creator
         let account_info = AccountInfo::new(
             &creator,
             is_signer,
@@ -399,7 +397,7 @@ mod tests {
         let is_writable = false;
         let executable = false;
 
-        // Создаем AccountInfo для создателя голосования
+        // Create AccountInfo for the vote creator
         let account_info = AccountInfo::new(
             &creator,
             is_signer,
@@ -443,7 +441,7 @@ mod tests {
         let is_writable = false;
         let executable = false;
 
-        // Создаем AccountInfo для создателя голосования
+        // Create AccountInfo for the vote creator
         let account_info = AccountInfo::new(
             &creator,
             is_signer,
@@ -468,7 +466,7 @@ mod tests {
             0,
         );
 
-        assert!(test_voting.voting.vote(0, &[account_info_voter2], 0).is_err()); // Голосующий не разрешён
+        assert!(test_voting.voting.vote(0, &[account_info_voter2], 0).is_err()); // Voter is not allowed
     }
 
     #[test]
@@ -483,7 +481,7 @@ mod tests {
         let is_writable = false;
         let executable = false;
 
-        // Создаем AccountInfo для создателя голосования
+        // Create AccountInfo for the vote creator
         let account_info = AccountInfo::new(
             &creator,
             is_signer,
@@ -497,7 +495,7 @@ mod tests {
 
         test_voting.voting.add_allowed_voter(0, voter1, &[account_info]).unwrap();
 
-        // Устанавливаем, что у voter1 нет голосов
+        // Set that voter1 has no votes left
         let new_voter = VoterInfo {
             votes_left: 0,
             delegate: None,
@@ -515,7 +513,7 @@ mod tests {
             0,
         );
 
-        assert!(test_voting.voting.vote(0, &[account_info_voter1], 0).is_err()); // Нет голосов для голосования
+        assert!(test_voting.voting.vote(0, &[account_info_voter1], 0).is_err()); // No votes left for voting
     }
 
     #[test]
@@ -530,7 +528,7 @@ mod tests {
         let is_writable = false;
         let executable = false;
 
-        // Создаем AccountInfo для создателя голосования
+        // Create AccountInfo for the vote creator
         let account_info = AccountInfo::new(
             &creator,
             is_signer,
@@ -544,10 +542,10 @@ mod tests {
 
         assert!(test_voting.voting.add_allowed_voter(0, voter1, &[account_info.clone()]).is_ok());
 
-        // Удаляем разрешенного голосующего
+        // Remove the allowed voter
         assert!(test_voting.voting.remove_allowed_voter(0, &voter1, &[account_info]).is_ok());
         let vote = test_voting.voting.votes.get(&0).unwrap();
-        assert!(!vote.is_voter_allowed(&voter1)); // Проверяем, что голосующий удалён
+        assert!(!vote.is_voter_allowed(&voter1)); // Check that the voter has been removed
     }
 
     #[test]
@@ -563,7 +561,7 @@ mod tests {
         let is_writable = false;
         let executable = false;
 
-        // Создаем AccountInfo для создателя голосования
+        // Create AccountInfo for the vote creator
         let account_info = AccountInfo::new(
             &creator,
             is_signer,
@@ -588,7 +586,7 @@ mod tests {
             0,
         );
 
-        // Пытаемся удалить разрешённого голосующего не создателем
+        // Attempt to remove an allowed voter not as the creator
         assert!(test_voting.voting.remove_allowed_voter(0, &voter1, &[non_creator_info]).is_err());
     }
 
@@ -605,7 +603,7 @@ mod tests {
         let is_writable = false;
         let executable = false;
 
-        // Создаем AccountInfo для создателя голосования
+        // Create AccountInfo for the vote creator
         let account_info = AccountInfo::new(
             &creator,
             is_signer,
@@ -619,7 +617,7 @@ mod tests {
 
         assert!(test_voting.voting.add_allowed_voter(0, voter1, &[account_info]).is_ok());
 
-        // Устанавливаем, что у voter1 есть 1 голос
+        // Set that voter1 has 1 vote
         let new_voter = VoterInfo {
             votes_left: 1,
             delegate: None,
@@ -637,7 +635,7 @@ mod tests {
             0,
         );
 
-        // Выполняем делегирование голосов
+        // Perform the vote delegation
         let result = test_voting.voting.delegate_vote(0, &delegate, &[account_info_voter1]);
 
         assert!(result.is_ok());
@@ -670,7 +668,7 @@ mod tests {
         let is_writable = false;
         let executable = false;
 
-        // Создаем AccountInfo для создателя голосования
+        // Create AccountInfo for the vote creator
         let account_info = AccountInfo::new(
             &creator,
             is_signer,
@@ -695,7 +693,7 @@ mod tests {
             0,
         );
 
-        // Пытаемся делегировать голос неразрешённому голосующему
+        // Attempt to delegate vote to a non-allowed voter
         assert!(test_voting.voting.delegate_vote(0, &delegate, &[account_info_non_allowed]).is_err());
     }
 
@@ -712,7 +710,7 @@ mod tests {
         let is_writable = false;
         let executable = false;
 
-        // Создаем AccountInfo для создателя голосования
+        // Create AccountInfo for the vote creator
         let account_info = AccountInfo::new(
             &creator,
             is_signer,
@@ -726,7 +724,7 @@ mod tests {
 
         assert!(test_voting.voting.add_allowed_voter(0, voter1, &[account_info]).is_ok());
 
-        // Устанавливаем, что у voter1 нет голосов
+        // Set that voter1 has no votes
         let new_voter = VoterInfo {
             votes_left: 0,
             delegate: None,
@@ -744,7 +742,7 @@ mod tests {
             0,
         );
 
-        // Проверяем, что делегирование не проходит, так как у voter1 нет голосов
+        // Check that delegation fails as voter1 has no votes
         assert!(test_voting.voting.delegate_vote(0, &delegate, &[account_info_voter1]).is_err());
     }
 
@@ -764,7 +762,7 @@ mod tests {
             0,
         );
 
-        // Пытаемся голосовать по несуществующему голосованию
+        // Attempt to vote on a non-existent voting
         assert!(test_voting.voting.vote(999, &[account_info], 0).is_err());
     }
 
@@ -774,26 +772,26 @@ mod tests {
         let creator = Pubkey::new_unique();
         let voter1 = Pubkey::new_unique();
 
-        // Создаем голосование
+        // Create a vote
         test_voting.add_vote("Test Vote".to_string(), vec!["Option 1".to_string(), "Option 2".to_string()], false, creator);
 
         let is_signer = true;
         let is_writable = false;
         let executable = false;
 
-        // Создаем AccountInfo для создателя голосования
+        // Create AccountInfo for the vote creator
         let account_info = AccountInfo::new(&creator, is_signer, is_writable, &mut test_voting.lamports, &mut test_voting.data, &test_voting.owner, executable, 0, );
 
-        // Добавляем разрешенного голосующего
+        // Add allowed voter
         assert!(test_voting.voting.add_allowed_voter(0, voter1, &[account_info.clone()]).is_ok());
 
-        // Закрываем голосование
+        // Close the vote
         assert!(test_voting.voting.close_vote(0, &[account_info.clone()]).is_ok());
 
-        // Теперь пытаемся проголосовать после закрытия голосования
+        // Now try to vote after the voting is closed
         let account_info_voter1 = AccountInfo::new(&voter1, is_signer, is_writable, &mut test_voting.lamports, &mut test_voting.data, &test_voting.owner, executable, 0, );
 
-        // Проверяем, что голосование не проходит, так как голосование закрыто
+        // Check that voting does not pass as it is closed
         assert!(test_voting.voting.vote(0, &[account_info_voter1], 0).is_err());
     }
 }
