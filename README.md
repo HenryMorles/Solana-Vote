@@ -40,7 +40,7 @@ To start working with the Solana Voting Program, you need to have Rust and Solan
 Clone the repository to your local machine:
 
 ```bash
-git clone https://github.com/your_username/solana-voting-program.git
+git clone https://github.com/HenryMorles/Solana-Vote.git
 cd solana-voting-program
 ```
 
